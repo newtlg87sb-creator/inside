@@ -1,3 +1,2 @@
 ccxt
-python-dotenv
 redis
