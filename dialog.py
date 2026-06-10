@@ -46,7 +46,7 @@ class MainDialog(QObject):
         self.net_status_bridge.connect(self._on_net_status_update)
 
         # Redis-ээс мэдээлэл урсгах моторыг асаах
-        asyncio.create_task(self._start_redis_market_listener())
+        asyncio.get_event_loop().create_task(self._start_redis_market_listener())
 
         # Таймерын утгуудыг тохируулах
         self.bal_countdown = 5
@@ -335,7 +335,7 @@ class MainDialog(QObject):
         symbol = self.ui.selected_symbol_label.text()
         amount = self.ui.amount_input.text()
         # Async тушаал илгээх жишээ
-        asyncio.create_task(self.kuc.create_order(symbol, action_type.lower(), float(amount)))
+        asyncio.get_event_loop().create_task(self.kuc.create_order(symbol, action_type.lower(), float(amount)))
         # Local GUI нь Railway-аар дамжуулан тушаал илгээх тул Redis-ээр дамжуулна.
         self.log_signal.emit(f"Local GUI: Order Sent: {action_type} {amount} {symbol}")
 
