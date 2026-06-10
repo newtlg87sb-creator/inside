@@ -70,6 +70,10 @@ class KucoinClient:
             start_time = time.perf_counter()
             balance = await self.exchange.fetch_balance()
             self._track_request()
+            # Redis рүү баланс бичих
+            if self.redis:
+                await asyncio.to_thread(self.redis.set, "bot_balance", json.dumps(balance))
+            
             self._emit_net_status(start_time)
             self.balance_signal.emit(balance)
             return balance
@@ -212,6 +216,11 @@ class KucoinClient:
     def _emit_net_status(self, start_time):
         """Сүлжээний төлөв байдлыг мэдээлэх."""
         latency = (time.perf_counter() - start_time) * 1000
+        # Redis рүү сүлжээний статус бичих
+        if self.redis:
+            net_data = {'latency': latency, 'rpm': len(self.req_history), 'ws_active': self.is_streaming, 'server_time': self.exchange.milliseconds()}
+            self.redis.set("bot_net_status", json.dumps(net_data))
+
         self.net_status_signal.emit({
             'latency': latency,
             'rpm': len(self.req_history),
