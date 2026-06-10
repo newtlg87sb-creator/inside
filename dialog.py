@@ -21,24 +21,25 @@ class MainDialog(QObject):
     balance_bridge = pyqtSignal(dict)
     net_status_bridge = pyqtSignal(dict)
 
+    # loop-ийг энд нэмж хүлээж авна
     def __init__(self, ui_instance, loop=None):
         super().__init__()
         self.ui = ui_instance
-        # loop-ийг хадгалж авах (no running event loop алдаанаас сэргийлнэ)
-        self.loop = loop or asyncio.get_event_loop()
+        # Хэрэв loop дамжиж ирээгүй бол одоо ажиллаж байгааг нь авна
+        self.loop = loop or asyncio.get_event_loop() 
         self.file_lock = threading.RLock()
         self.active_symbols = {}
-        self.symbol_to_row = {} # Symbol -> Row mapping
-        self.initial_mid_prices = {} # To store initial mid price for Real% calculation
+        self.symbol_to_row = {} 
+        self.initial_mid_prices = {} 
         
         # Үнийн кэш
         self.ws_bids = {}
         self.ws_asks = {}
-        self.all_data = [] # Market data cache
+        self.all_data = [] 
 
         # 1. KuCoin Client эхлүүлэх
-        self.kuc = KucoinClient() # Redis холболтыг үүсгэх зорилгоор
-        self.exchange = None # Local GUI нь KuCoin-той шууд харилцахгүй
+        self.kuc = KucoinClient() 
+        self.exchange = None 
         
         self.kuc.error_signal.connect(lambda msg: self.log_signal.emit(f"❌ ERROR DETECTED:\n{msg}"))
         
@@ -47,7 +48,7 @@ class MainDialog(QObject):
         self.balance_bridge.connect(self._on_balance_update)
         self.net_status_bridge.connect(self._on_net_status_update)
 
-        # ЗАСВАР: Баталгаат loop дээр таск-аа асаана
+        # ЗАСВАР: Ажиллаж байгаа баталгаат loop дээр таск-аа асаана
         self.loop.create_task(self._start_redis_market_listener())
 
         # Таймерын утгуудыг тохируулах
@@ -55,7 +56,7 @@ class MainDialog(QObject):
         self.sync_countdown = 60
         self.ui_tick_timer = QTimer()
         self.ui_tick_timer.timeout.connect(self._ui_heartbeat)
-        self.ui_tick_timer.start(1000) # 1 секунд тутам
+        self.ui_tick_timer.start(1000) 
 
         # 3. UI Сигнал холболтууд
         self._wire_ui()
@@ -64,12 +65,12 @@ class MainDialog(QObject):
         # 4. Системийн авто-шинэчлэл (1 минут тутамд)
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self._on_system_heartbeat)
-        self.refresh_timer.start(60000) # 60,000 ms = 1 минут
+        self.refresh_timer.start(60000) 
 
         # 5. Баланс авто-шинэчлэл (5 секунд тутамд)
         self.balance_timer = QTimer()
         self.balance_timer.timeout.connect(self.start_fetch)
-        self.balance_timer.start(5000) # 5,000 ms = 5 секунд
+        self.balance_timer.start(5000)
 
     def _wire_ui(self):
         """UI-ийн товчлууруудыг логик функцүүдтэй холбох."""
@@ -121,11 +122,6 @@ class MainDialog(QObject):
                 item.setData(Qt.ItemDataRole.DisplayRole, str(r + 1))
                 item.setData(Qt.ItemDataRole.EditRole, r + 1)
         table.setSortingEnabled(sorting_enabled)
-
-    # НЭМЭЛТ: Энд дутаад байсан функцийг буцааж нэмэв!
-    def _on_market_header_clicked(self, index):
-        """# багана (index 0) дээр дарахад эрэмбэлэхийг идэвхгүй болгох."""
-        self.ui.market_table.setSortingEnabled(index != 0)
 
     @pyqtSlot(dict)
     def _on_price_update(self, data):
@@ -214,6 +210,7 @@ class MainDialog(QObject):
         while True:
             try:
                 # 1. МАРКЕТ ҮНЭ УНШИХ
+                # Тэмдэглэл: 'active_pairs' гэсэн set-д байгаа бүх зоосны үнийг шүүрдэх
                 symbols = await asyncio.to_thread(redis_client.smembers, "active_pairs")
                 if symbols:
                     for sym in symbols:
@@ -234,9 +231,11 @@ class MainDialog(QObject):
                     net_data = json.loads(raw_net)
                     self.net_status_bridge.emit(net_data)
 
+                # UI-г "амьсгалуулах" хугацаа
                 await asyncio.sleep(0.2)
 
             except Exception as e:
+                # Хэрэв Railway бот хараахан дата бичиж эхлээгүй бол алдаа зааж магадгүй
                 if "NoneType" not in str(e):
                     self.log_signal.emit(f"⚠️ Redis Loop Warning: {e}")
                 await asyncio.sleep(1)
@@ -252,6 +251,8 @@ class MainDialog(QObject):
             table.setRowCount(0)
             grand_total_usdt_worth = 0
             
+            # CCXT balance-аас койн бүрийн мэдээллийг авах
+            # balance['total'] нь нийт, balance['free'] нь арилжаанд бэлэн, balance['used'] нь түгжигдсэн
             for asset, total_val in balance.get('total', {}).items():
                 if total_val > 0:
                     row = table.rowCount()
@@ -260,16 +261,19 @@ class MainDialog(QObject):
                     free = balance.get('free', {}).get(asset, 0)
                     used = balance.get('used', {}).get(asset, 0)
 
+                    # Баганууд: ["Asset", "Trading", "Exceed", "Funding", "Total(USDT)"]
                     table.setItem(row, 0, QTableWidgetItem(asset))
                     self._set_num_item(table, row, 1, free)    # Trading
-                    self._set_num_item(table, row, 2, 0)       # Exceed
+                    self._set_num_item(table, row, 2, 0)       # Exceed (Логик орох хэсэг)
                     self._set_num_item(table, row, 3, used)    # Funding
 
+                    # Үнийг хөрвүүлэх (Asset-ийн одоогийн mid price ашиглан)
                     price_usdt = 1.0 if asset == 'USDT' else self.get_live_price(f"{asset}/USDT")
                     worth_usdt = total_val * price_usdt
                     self._set_num_item(table, row, 4, worth_usdt) # Total(USDT)
                     grand_total_usdt_worth += worth_usdt
 
+            # Footer шинэчлэх
             footer = self.ui.balance_total_table
             footer.setItem(0, 0, QTableWidgetItem("TOTAL"))
             footer.item(0, 0).setForeground(Qt.GlobalColor.yellow)
@@ -304,12 +308,14 @@ class MainDialog(QObject):
         self.ui.net_bal_timer.setText(f"BAL: {max(0, self.bal_countdown)}s")
         self.ui.net_sync_timer.setText(f"SYNC: {max(0, self.sync_countdown)}s")
         
+        # Railway-аас ирсэн Redis логуудыг шалгах
         self._check_redis_events()
 
     def _check_redis_events(self):
         """Redis-ээс Railway ботын үйл явдлуудыг унших."""
         if self.kuc.redis:
             try:
+                # Бүх хүлээгдэж буй логийг нэг дор унших
                 while True:
                     event_raw = self.kuc.redis.rpop("bot_events")
                     if not event_raw:
@@ -320,13 +326,36 @@ class MainDialog(QObject):
                 pass
 
     def _on_system_heartbeat(self):
-        self.sync_countdown = 60
+        """Системийг бүхэлд нь 1 минут тутамд шинэчлэх."""
+        self.sync_countdown = 60 # Таймерыг дахин эхлүүлэх
+        # Local GUI нь Redis-ээс мэдээлэл унших тул эдгээрийг шууд дуудахгүй.
+        # self.start_fetch()
+        # self.refresh_all()
+        # self.refresh_profit()
 
     def _handle_action(self, action_type):
+        """Товчлуур дарахад ажиллах ерөнхий функц."""
         symbol = self.ui.selected_symbol_label.text()
         amount = self.ui.amount_input.text()
+        # Async тушаал илгээх жишээ
         asyncio.get_event_loop().create_task(self.kuc.create_order(symbol, action_type.lower(), float(amount)))
+        # Local GUI нь Railway-аар дамжуулан тушаал илгээх тул Redis-ээр дамжуулна.
         self.log_signal.emit(f"Local GUI: Order Sent: {action_type} {amount} {symbol}")
+
+    @pyqtSlot()
+    def refresh_all(self):
+        """UI хүснэгтийг шинэчлэх логик орох хэсэг."""
+        pass # Лог дээрх хогийг цэвэрлэв
+
+    @pyqtSlot()
+    def refresh_profit(self):
+        """Ашгийн түүхийг шинэчлэх логик орох хэсэг."""
+        pass # Лог дээрх хогийг цэвэрлэв
+
+    @pyqtSlot()
+    def start_fetch(self):
+        """Баланс шинэчлэх логик орох хэсэг."""
+        self.bal_countdown = 5 # Таймерыг дахин эхлүүлэх
 
     def get_live_bid(self, symbol):
         return float(self.ws_bids.get(symbol, 0))
@@ -335,41 +364,83 @@ class MainDialog(QObject):
         return float(self.ws_asks.get(symbol, 0))
 
     def get_live_price(self, symbol):
+        """Арилжааны дундаж үнийг (Mid Price) буцаана."""
         bid = self.get_live_bid(symbol)
         ask = self.get_live_ask(symbol)
         return (bid + ask) / 2 if (bid > 0 and ask > 0) else bid or ask
 
+    # --- UI Helper Methods ---
+
     def _copy_table_to_clipboard(self, table):
+        """Хүснэгтийн өгөгдлийг clipboard руу хуулах (Excel-д наахад тохиромжтой)."""
         rows = table.rowCount()
         cols = table.columnCount()
+        
+        # Header-үүдийг авах
         headers = []
         for c in range(cols):
             header_item = table.horizontalHeaderItem(c)
             headers.append(header_item.text() if header_item else f"Col{c}")
+        
         output = ["\t".join(headers)]
+        
+        # Row-уудыг авах
         for r in range(rows):
             row_data = []
             for c in range(cols):
                 item = table.item(r, c)
                 row_data.append(item.text() if item else "")
             output.append("\t".join(row_data))
+        
         QApplication.clipboard().setText("\n".join(output))
         self.log_signal.emit("Хүснэгтийн өгөгдөл clipboard-д хуулагдлаа.")
 
     def _copy_history_tab_data(self):
+        """History tab-ийн идэвхтэй хүснэгтийг хуулах."""
         index = self.ui.history_tabs.currentIndex()
         table = self.ui.auto_trade_table if index == 0 else self.ui.profit_table
         self._copy_table_to_clipboard(table)
 
     def _copy_logs(self):
+        """Логуудыг clipboard руу хуулах."""
         QApplication.clipboard().setText(self.ui.log_display.toPlainText())
         self.log_signal.emit("Системийн логууд clipboard-д хуулагдлаа.")
 
+    def _update_auto_table(self, data_list):
+        self.ui.auto_trade_table.setRowCount(len(data_list))
+        for row, data in enumerate(data_list):
+            self.ui.auto_trade_table.setItem(row, 0, QTableWidgetItem(str(data.get('pair'))))
+            self.ui.auto_trade_table.setItem(row, 1, QTableWidgetItem(str(data.get('time'))))
+            self.ui.auto_trade_table.setItem(row, 2, QTableWidgetItem(str(data.get('side'))))
+            self.ui.auto_trade_table.setItem(row, 3, QTableWidgetItem(self._fmt(data.get('price', 0))))
+            self.ui.auto_trade_table.setItem(row, 4, QTableWidgetItem(self._fmt(data.get('amount', 0))))
+            self.ui.auto_trade_table.setItem(row, 6, QTableWidgetItem(str(data.get('status'))))
+
+    def _update_profit_table(self, data_list):
+        self.ui.profit_table.setRowCount(len(data_list))
+        for row, data in enumerate(data_list):
+            self.ui.profit_table.setItem(row, 0, QTableWidgetItem(str(data.get('symbol'))))
+            self.ui.profit_table.setItem(row, 4, QTableWidgetItem(self._fmt(data.get('net_profit_usdt', 0))))
+
+    def _load_active_trades(self):
+        """Программ эхлэхэд идэвхтэй арилжаануудыг ачаалах."""
+        self.active_symbols = {}
+        self.log_signal.emit("Skeleton initialized. Ready for logic implementation.")
+
+    @pyqtSlot(str)
+    def _append_log_to_ui(self, msg):
+        """Лог мессежийг UI дээр цаг хугацаатай харуулах."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.ui.log_display.append(f"[{timestamp}] {msg}")
+
     def _on_market_select(self, item):
-        coin = self.ui.market_table.item(item.row(), 1).text().replace(' ', '')
+        """Хүснэгтээс зоос сонгоход Ticker label-ийг шинэчлэх."""
+        # 1-р багана нь Coin нэр байна
+        coin = self.ui.market_table.item(item.row(), 1).text().replace(' ', '') # Хоосон зайг хасна
         self.ui.selected_symbol_label.setText(f"{coin}/USDT")
 
     def _toggle_strategy(self):
+        """Strategy START/STOP логик."""
         strategy_name = self.ui.strategy_combo.currentText()
         if self.ui.start_btn.text() == "START":
             if strategy_name == "Strategy 1":
@@ -383,40 +454,40 @@ class MainDialog(QObject):
                 self.ui.start_btn.setStyleSheet(BTN_ORANGE)
 
     def _show_mgmt_menu(self):
+        """Management товчны доорх цэсийг үүсгэж харуулах."""
         menu = QMenu(self.ui)
         menu.setStyleSheet(MGMT_MENU_STYLE)
         symbol = self.ui.selected_symbol_label.text()
+        
         menu.addAction("Sell Exceed Balances", lambda: self.log_signal.emit("Action: Sell Exceed"))
         menu.addAction("Delist Current Ticker", lambda: self.log_signal.emit(f"Action: Delist {symbol}"))
         menu.addSeparator()
         menu.addAction("Clear All Trading", lambda: self.log_signal.emit("Action: Clear All"))
         menu.addAction("Force Sell & Reset All", lambda: self.log_signal.emit("Action: Force Sell"))
+        
         menu.exec(self.ui.mgmt_btn.mapToGlobal(self.ui.mgmt_btn.rect().bottomLeft()))
 
     def _show_hide_menu(self):
+        """Маркет хүснэгтийн шүүлтүүрүүдийг харуулах цэс."""
         menu = QMenu(self.ui)
         menu.setStyleSheet(MGMT_MENU_STYLE)
+        
+        # Цэсний сонголтууд
         menu.addAction("Hide Blacklist", lambda: self.log_signal.emit("Filter: Blacklist active"))
         menu.addAction("Hide Spread", lambda: self.log_signal.emit("Filter: Spread filter active"))
         menu.addAction("Hide Low Vol", lambda: self.log_signal.emit("Filter: Low Vol hidden"))
         menu.addAction("Hide Min High", lambda: self.log_signal.emit("Filter: Min High hidden"))
         menu.addAction("Hide Limit High", lambda: self.log_signal.emit("Filter: Limit High hidden"))
+        
+        # Товчлуурын доор цэсийг нээх
         menu.exec(self.ui.hide_btn.mapToGlobal(self.ui.hide_btn.rect().bottomLeft()))
 
-    def _load_active_trades(self):
-        self.active_symbols = {}
-        self.log_signal.emit("Skeleton initialized. Ready for logic implementation.")
-
-    @pyqtSlot(str)
-    def _append_log_to_ui(self, msg):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.ui.log_display.append(f"[{timestamp}] {msg}")
-
+    # --- Logic классуудад зориулсан Bridge properties ---
     @property
-    def market(self): return self
+    def market(self): return self # exchange объект self дотор байгаа тул
     @property
-    def history(self): return self
+    def history(self): return self # refresh_all, get_live_bid энд байгаа тул
     @property
-    def balance(self): return self
+    def balance(self): return self # start_fetch энд байгаа тул
     @property
-    def control(self): return self.ui
+    def control(self): return self.ui # amount_input зэргийг уншихад хэрэгтэй
