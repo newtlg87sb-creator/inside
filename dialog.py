@@ -16,6 +16,10 @@ class MainDialog(QObject):
     Товчлуур болон дата урсгалыг энд нэгтгэнэ.
     """
     log_signal = pyqtSignal(str)
+    # UI Thread-тэй аюулгүй харилцах гүүр сигналууд
+    price_bridge = pyqtSignal(dict)
+    balance_bridge = pyqtSignal(dict)
+    net_status_bridge = pyqtSignal(dict)
 
     def __init__(self, ui_instance):
         super().__init__()
@@ -34,11 +38,16 @@ class MainDialog(QObject):
         self.kuc = KucoinClient()
         self.exchange = self.kuc.exchange
         
-        # 2. Клиентийн сигналуудыг холбох
-        self.kuc.price_signal.connect(self._on_price_update)
+        # 2. Клиентийн сигналуудыг Bridge-ээр дамжуулж UI thread рүү шидэх
+        self.kuc.price_signal.connect(lambda data: self.price_bridge.emit(data))
+        self.kuc.balance_signal.connect(lambda data: self.balance_bridge.emit(data))
+        self.kuc.net_status_signal.connect(lambda data: self.net_status_bridge.emit(data))
+
+        self.price_bridge.connect(self._on_price_update)
+        self.balance_bridge.connect(self._on_balance_update)
+        self.net_status_bridge.connect(self._on_net_status_update)
+        
         self.kuc.error_signal.connect(lambda msg: self.log_signal.emit(f"❌ ERROR DETECTED:\n{msg}"))
-        self.kuc.balance_signal.connect(self._on_balance_update)
-        self.kuc.net_status_signal.connect(self._on_net_status_update)
         
         # WebSocket-ийг шууд эхлүүлэх (Жишээ болгож BTC/USDT)
         self.kuc.start_market_stream()
@@ -47,7 +56,7 @@ class MainDialog(QObject):
         self.bal_countdown = 5
         self.sync_countdown = 60
         self.ui_tick_timer = QTimer()
-        self.ui_tick_timer.timeout.connect(self._update_countdown_labels)
+        self.ui_tick_timer.timeout.connect(self._ui_heartbeat)
         self.ui_tick_timer.start(1000) # 1 секунд тутам
 
         # 3. UI Сигнал холболтууд
@@ -284,12 +293,27 @@ class MainDialog(QObject):
             st = datetime.fromtimestamp(data['server_time'] / 1000).strftime('%H:%M:%S')
             self.ui.net_server_time.setText(f"Server Time: {st}")
 
-    def _update_countdown_labels(self):
+    def _ui_heartbeat(self):
         """Таймерын утгуудыг секундээр бууруулж UI дээр харуулах."""
         self.bal_countdown -= 1
         self.sync_countdown -= 1
         self.ui.net_bal_timer.setText(f"BAL: {max(0, self.bal_countdown)}s")
         self.ui.net_sync_timer.setText(f"SYNC: {max(0, self.sync_countdown)}s")
+        
+        # Railway-аас ирсэн Redis логуудыг шалгах
+        self._check_redis_events()
+
+    def _check_redis_events(self):
+        """Redis-ээс Railway ботын үйл явдлуудыг унших."""
+        if self.kuc.redis:
+            try:
+                # Сүүлийн ирсэн логийг аваад устгах (pop)
+                event_raw = self.kuc.redis.rpop("bot_events")
+                if event_raw:
+                    event = json.loads(event_raw)
+                    self.log_signal.emit(f"🌐 [RAILWAY] {event['msg']}")
+            except Exception:
+                pass
 
     def _on_system_heartbeat(self):
         """Системийг бүхэлд нь 1 минут тутамд шинэчлэх."""

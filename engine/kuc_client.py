@@ -4,6 +4,7 @@ import os
 import traceback
 import time
 import json
+import redis
 
 class Signal:
     """A simple signal class to replace pyqtSignal for headless environments."""
@@ -31,6 +32,16 @@ class KucoinClient:
             'password': os.getenv('KUCOIN_PASSWORD', ''),
             'enableRateLimit': True,
         })
+        
+        # Redis холболт (Railway болон Local хоёрт адилхан)
+        self.redis_url = os.getenv('REDIS_URL')
+        self.redis = None
+        if self.redis_url:
+            try:
+                self.redis = redis.from_url(self.redis_url, decode_responses=True)
+            except Exception:
+                pass
+
         self.is_streaming = False
         self.markets_info = {} # Initialize markets_info here
         self.req_history = [] # Requests timestamps for RPM calculation
@@ -41,6 +52,17 @@ class KucoinClient:
         self.req_history.append(now)
         # 60 секундээс хуучин түүхийг устгах
         self.req_history = [t for t in self.req_history if t > now - 60]
+
+    def log_event(self, message, event_type="LOG"):
+        """Чухал мэдээллийг Redis рүү болон локал сигнал руу илгээх."""
+        full_msg = f"[{event_type}] {message}"
+        # Локал GUI-д зориулсан сигнал
+        if event_type == "ERROR":
+            self.error_signal.emit(full_msg)
+        # Redis рүү хадгалах (Railway-аас Local руу дамжуулах)
+        if self.redis:
+            self.redis.lpush("bot_events", json.dumps({"time": time.time(), "msg": full_msg}))
+            self.redis.ltrim("bot_events", 0, 99) # Сүүлийн 100 логийг л хадгална
 
     async def fetch_balance(self):
         """Нийт балансын мэдээллийг татаж авах."""
