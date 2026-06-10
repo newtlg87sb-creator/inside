@@ -35,19 +35,18 @@ class MainDialog(QObject):
         self.all_data = [] # Market data cache
 
         # 1. KuCoin Client эхлүүлэх
-        # Local GUI нь Railway-аас мэдээлэл авах тул KucoinClient-ийг шууд ажиллуулахгүй.
-        # Гэхдээ Redis холболтыг ашиглахын тулд KucoinClient-ийн Redis хэсгийг ашиглана.
         self.kuc = KucoinClient() # Redis холболтыг үүсгэх зорилгоор
         self.exchange = None # Local GUI нь KuCoin-той шууд харилцахгүй
         
-        # 2. Клиентийн сигналуудыг Bridge-ээр дамжуулж UI thread рүү шидэх
-        # Local GUI нь Redis-ээс мэдээлэл унших тул эдгээр сигналуудыг шууд холбохгүй.
-        # Харин Redis-ээс уншсан мэдээллийг _on_price_update, _on_balance_update гэх мэт функцүүд рүү дамжуулна.
-        
         self.kuc.error_signal.connect(lambda msg: self.log_signal.emit(f"❌ ERROR DETECTED:\n{msg}"))
         
-        # Local GUI нь WebSocket-ийг шууд эхлүүлэхгүй
-        # self.kuc.start_market_stream()
+        # Bridge холболтууд (Redis-ээс ирэх датаг UI thread рүү аюулгүй шидэх)
+        self.price_bridge.connect(self._on_price_update)
+        self.balance_bridge.connect(self._on_balance_update)
+        self.net_status_bridge.connect(self._on_net_status_update)
+
+        # Redis-ээс мэдээлэл урсгах моторыг асаах
+        asyncio.create_task(self._start_redis_market_listener())
 
         # Таймерын утгуудыг тохируулах
         self.bal_countdown = 5
@@ -194,47 +193,49 @@ class MainDialog(QObject):
             # Limit багана - Хамгийн бага арилжих ширхэгийн тоо (Coin amount)
             self._set_num_item(table, row, 9, min_amount)
 
-        finally:
+                finally:
             table.setSortingEnabled(sorting_was_enabled)
-        
-        # Market Totals update (External table)
-        self._update_market_totals()
 
-    def _update_market_totals(self):
-        """Market хүснэгтийн Real% болон 24% нийлбэрийг тооцоолох."""
-        table = self.ui.market_table
-        footer = self.ui.market_total_table
-        t_vol = 0.0
-        total_real = 0.0
-        total_24h = 0.0
-        
-        def safe_float(v):
+    async def _start_redis_market_listener(self):
+        """Railway Redis-ээс датаг тасралтгүй урсгах хөдөлгүүр."""
+        while not hasattr(self.kuc, 'redis') or self.kuc.redis is None:
+            await asyncio.sleep(0.5)
+
+        redis_client = self.kuc.redis
+        self.log_signal.emit("📡 Redis Market Listener ажиллаж эхэллээ.")
+
+        while True:
             try:
-                return float(v) if v != "-" else 0.0
-            except (ValueError, TypeError):
-                return 0.0
+                # 1. МАРКЕТ ҮНЭ УНШИХ
+                # Тэмдэглэл: 'active_pairs' гэсэн set-д байгаа бүх зоосны үнийг шүүрдэх
+                symbols = await asyncio.to_thread(redis_client.smembers, "active_pairs")
+                if symbols:
+                    for sym in symbols:
+                        raw_data = await asyncio.to_thread(redis_client.get, f"market:{sym}")
+                        if raw_data:
+                            market_data = json.loads(raw_data)
+                            self.price_bridge.emit(market_data)
 
-        for r in range(table.rowCount()):
-            # Column indices: Vol (6), Real% (7), 24% (8)
-            v_val = table.item(r, 6).data(Qt.ItemDataRole.EditRole) if table.item(r, 6) else 0
-            re_val = table.item(r, 7).data(Qt.ItemDataRole.EditRole) if table.item(r, 7) else 0
-            c_val = table.item(r, 8).data(Qt.ItemDataRole.EditRole) if table.item(r, 8) else 0
-            
-            t_vol += safe_float(v_val)
-            total_real += safe_float(re_val)
-            total_24h += safe_float(c_val)
+                # 2. БАЛАНС УНШИХ
+                raw_bal = await asyncio.to_thread(redis_client.get, "bot_balance")
+                if raw_bal:
+                    balance_data = json.loads(raw_bal)
+                    self.balance_bridge.emit(balance_data)
 
-        # Footer-ийг шинэчлэх
-        footer.setItem(0, 1, QTableWidgetItem("TOTAL"))
-        footer.item(0, 1).setForeground(Qt.GlobalColor.yellow)
-        self._set_num_item(footer, 0, 6, t_vol) # Volume total
-        self._set_num_item(footer, 0, 7, total_real, sign=True)
-        self._set_num_item(footer, 0, 8, total_24h, sign=True)
+                # 3. СҮЛЖЭЭНИЙ СТАТУС УНШИХ
+                raw_net = await asyncio.to_thread(redis_client.get, "bot_net_status")
+                if raw_net:
+                    net_data = json.loads(raw_net)
+                    self.net_status_bridge.emit(net_data)
 
-    def _on_market_header_clicked(self, index):
-        """# багана (index 0) дээр дарахад эрэмбэлэхийг идэвхгүй болгох."""
-        # Хэрэв 0-р багана биш бол эрэмбэлэлтийг зөвшөөрнө
-        self.ui.market_table.setSortingEnabled(index != 0)
+                # UI-г "амьсгалуулах" хугацаа
+                await asyncio.sleep(0.2)
+
+            except Exception as e:
+                # Хэрэв Railway бот хараахан дата бичиж эхлээгүй бол алдаа зааж магадгүй
+                if "NoneType" not in str(e):
+                    self.log_signal.emit(f"⚠️ Redis Loop Warning: {e}")
+                await asyncio.sleep(1)
 
     @pyqtSlot(dict)
     def _on_balance_update(self, balance):
