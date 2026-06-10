@@ -199,6 +199,11 @@ class MainDialog(QObject):
         finally:
             table.setSortingEnabled(sorting_was_enabled)
 
+    def _on_market_header_clicked(self, index):
+        """# багана (index 0) дээр дарахад эрэмбэлэхийг идэвхгүй болгох."""
+        # Хэрэв 0-р багана биш бол эрэмбэлэлтийг зөвшөөрнө
+        self.ui.market_table.setSortingEnabled(index != 0)
+
     async def _start_redis_market_listener(self):
         """Railway Redis-ээс датаг тасралтгүй урсгах хөдөлгүүр."""
         while not hasattr(self.kuc, 'redis') or self.kuc.redis is None:
