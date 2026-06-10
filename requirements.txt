@@ -1,0 +1,4 @@
+ccxt
+qasync
+PyQt6
+python-dotenv
