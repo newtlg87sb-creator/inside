@@ -193,7 +193,7 @@ class MainDialog(QObject):
             # Limit багана - Хамгийн бага арилжих ширхэгийн тоо (Coin amount)
             self._set_num_item(table, row, 9, min_amount)
 
-                finally:
+        finally:
             table.setSortingEnabled(sorting_was_enabled)
 
     async def _start_redis_market_listener(self):
