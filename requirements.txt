@@ -1,4 +1,5 @@
 ccxt
+ccxt.pro
 qasync
 PyQt6
 python-dotenv

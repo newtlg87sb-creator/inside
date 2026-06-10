@@ -6,7 +6,7 @@ import threading
 import asyncio
 from datetime import datetime
 from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot, Qt, QMetaObject, QTimer
-from PyQt6.QtWidgets import QMenu, QTableWidgetItem, QApplication, QTableWidget
+from PyQt6.QtWidgets import QMenu, QTableWidgetItem, QApplication, QTableWidget, QAbstractItemView
 from main_ui import MGMT_MENU_STYLE, BTN_RED, BTN_ORANGE
 from engine.kuc_client import KucoinClient
  

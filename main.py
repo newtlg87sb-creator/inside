@@ -21,7 +21,7 @@ def global_exception_handler(exctype, value, tb):
     # Энд хэрэв bridge объектод хандаж чадвал UI-руу илгээж болно
     logging.error(error_msg)
 
-def async_exception_handler(loop, context):
+def async_exception_handler(loop, context): # type: ignore
     """Async task дотор гарсан алдааг барьж авах"""
     exception = context.get("exception")
     if exception:
