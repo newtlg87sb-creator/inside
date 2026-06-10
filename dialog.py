@@ -198,9 +198,12 @@ class MainDialog(QObject):
 
         finally:
             table.setSortingEnabled(sorting_was_enabled)
+        
+        # Market Totals-ийг _ui_heartbeat дотор тогтмол шинэчилнэ
 
     def _on_market_header_clicked(self, index):
         """# багана (index 0) дээр дарахад эрэмбэлэхийг идэвхгүй болгох."""
+
         # Хэрэв 0-р багана биш бол эрэмбэлэлтийг зөвшөөрнө
         self.ui.market_table.setSortingEnabled(index != 0)
 
@@ -313,6 +316,9 @@ class MainDialog(QObject):
         self.ui.net_bal_timer.setText(f"BAL: {max(0, self.bal_countdown)}s")
         self.ui.net_sync_timer.setText(f"SYNC: {max(0, self.sync_countdown)}s")
         
+        # Market totals-ийг тогтмол шинэчлэх
+        self._update_market_totals()
+
         # Railway-аас ирсэн Redis логуудыг шалгах
         self._check_redis_events()
 
@@ -335,6 +341,7 @@ class MainDialog(QObject):
         self.sync_countdown = 60 # Таймерыг дахин эхлүүлэх
         # Local GUI нь Redis-ээс мэдээлэл унших тул эдгээрийг шууд дуудахгүй.
         # self.start_fetch()
+        # self.kuc.log_event("Систем автоматаар шинэчлэгдлээ.", "INFO") # Railway-аас ирэх лог
         # self.refresh_all()
         # self.refresh_profit()
 
@@ -344,8 +351,8 @@ class MainDialog(QObject):
         amount = self.ui.amount_input.text()
         # Async тушаал илгээх жишээ
         asyncio.get_event_loop().create_task(self.kuc.create_order(symbol, action_type.lower(), float(amount)))
-        # Local GUI нь Railway-аар дамжуулан тушаал илгээх тул Redis-ээр дамжуулна.
-        self.log_signal.emit(f"Local GUI: Order Sent: {action_type} {amount} {symbol}")
+        # Local GUI-аас илгээсэн тушаалыг Redis рүү бичих
+        self.kuc.log_event(f"Local GUI: Order Sent: {action_type} {amount} {symbol}", "ORDER")
 
     @pyqtSlot()
     def refresh_all(self):

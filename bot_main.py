@@ -18,7 +18,7 @@ async def main():
     # 4. Хяналтын гогцоо (Баланс шалгах + Ажиллаж байгааг мэдэгдэх)
     while True:
         await client.fetch_balance()
-        client.log_event("Баланс шинэчлэгдлээ.", "INFO")
+        client.log_event("Бот хэвийн ажиллаж байна. Баланс шинэчлэгдлээ.", "INFO")
         await asyncio.sleep(60) # 1 минут тутамд
 
 if __name__ == "__main__":

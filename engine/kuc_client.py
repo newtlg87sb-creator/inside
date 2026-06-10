@@ -170,7 +170,7 @@ class KucoinClient:
                 
                 if self.redis:
                     # Redis рүү үнийг бичих (GUI уншихад зориулж)
-                    self.redis.set(f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
+                    await asyncio.to_thread(self.redis.set, f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
                     await asyncio.to_thread(self.redis.sadd, "active_pairs", sym_name)
 
                 self._emit_ticker(merged_data)
@@ -196,7 +196,7 @@ class KucoinClient:
                         merged_data = {**ticker_data, **market_limits}
                         
                         if self.redis:
-                            self.redis.set(f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
+                            await asyncio.to_thread(self.redis.set, f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
                         
                         self._emit_ticker(merged_data)
                         
@@ -241,7 +241,7 @@ class KucoinClient:
         # Redis рүү сүлжээний статус бичих
         if self.redis:
             net_data = {'latency': latency, 'rpm': len(self.req_history), 'ws_active': self.is_streaming, 'server_time': self.exchange.milliseconds()}
-            self.redis.set("bot_net_status", json.dumps(net_data))
+            await asyncio.to_thread(self.redis.set, "bot_net_status", json.dumps(net_data))
 
         self.net_status_signal.emit({
             'latency': latency,
