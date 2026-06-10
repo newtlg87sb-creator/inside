@@ -162,13 +162,19 @@ class KucoinClient:
             usdt_pairs = [s for s, t in all_tickers.items() if s.endswith('/USDT') and '3L' not in s and '3S' not in s]
             symbols = set(usdt_pairs) # Бүх USDT хослолыг хянах
             
-            # Эхний өгөгдлүүдийг UI-руу шууд илгээх
+            # Эхний өгөгдлүүдийг UI болон Redis рүү шууд илгээх
             for sym_name in usdt_pairs:
                 ticker_data = all_tickers[sym_name]
                 market_limits = self.markets_info.get(sym_name, {})
                 merged_data = {**ticker_data, **market_limits}
-                self._emit_ticker(merged_data)
+                
+                if self.redis:
+                    # Redis рүү үнийг бичих (GUI уншихад зориулж)
+                    self.redis.set(f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
+                    await asyncio.to_thread(self.redis.sadd, "active_pairs", sym_name)
 
+                self._emit_ticker(merged_data)
+                        
         except Exception as e:
             full_error = traceback.format_exc()
             self.error_signal.emit(f"Initial Ticker Fetch Error:\n{full_error}")
@@ -188,12 +194,28 @@ class KucoinClient:
                     if sym_name in symbols:
                         market_limits = self.markets_info.get(sym_name, {})
                         merged_data = {**ticker_data, **market_limits}
+                        
+                        if self.redis:
+                            self.redis.set(f"market:{sym_name}", json.dumps(self._prepare_ticker_dict(merged_data)))
+                        
                         self._emit_ticker(merged_data)
                         
             except Exception as e:
                 full_error = traceback.format_exc()
                 self.error_signal.emit(f"WebSocket Error:\n{full_error}")
                 await asyncio.sleep(5)  # Алдаа гарвал 5 сек хүлээгээд дахин холбогдоно
+
+    def _prepare_ticker_dict(self, t):
+        """Redis-д хадгалахад зориулж өгөгдлийг цэгцлэх."""
+        return {
+            'symbol': t.get('symbol'),
+            'bid': t.get('bid') if t.get('bid') is not None else 0.0,
+            'ask': t.get('ask') if t.get('ask') is not None else 0.0,
+            'change': t.get('percentage'),
+            'volume': t.get('quoteVolume') if t.get('quoteVolume') is not None else 0.0,
+            'min_cost': t.get('min_cost', 0.0),
+            'min_amount': t.get('min_amount', 0.0)
+        }
 
     def _emit_ticker(self, t):
         """Ticker өгөгдлийг стандарт хэлбэрт оруулж сигнал илгээх."""
