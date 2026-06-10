@@ -35,22 +35,19 @@ class MainDialog(QObject):
         self.all_data = [] # Market data cache
 
         # 1. KuCoin Client эхлүүлэх
-        self.kuc = KucoinClient()
-        self.exchange = self.kuc.exchange
+        # Local GUI нь Railway-аас мэдээлэл авах тул KucoinClient-ийг шууд ажиллуулахгүй.
+        # Гэхдээ Redis холболтыг ашиглахын тулд KucoinClient-ийн Redis хэсгийг ашиглана.
+        self.kuc = KucoinClient() # Redis холболтыг үүсгэх зорилгоор
+        self.exchange = None # Local GUI нь KuCoin-той шууд харилцахгүй
         
         # 2. Клиентийн сигналуудыг Bridge-ээр дамжуулж UI thread рүү шидэх
-        self.kuc.price_signal.connect(lambda data: self.price_bridge.emit(data))
-        self.kuc.balance_signal.connect(lambda data: self.balance_bridge.emit(data))
-        self.kuc.net_status_signal.connect(lambda data: self.net_status_bridge.emit(data))
-
-        self.price_bridge.connect(self._on_price_update)
-        self.balance_bridge.connect(self._on_balance_update)
-        self.net_status_bridge.connect(self._on_net_status_update)
+        # Local GUI нь Redis-ээс мэдээлэл унших тул эдгээр сигналуудыг шууд холбохгүй.
+        # Харин Redis-ээс уншсан мэдээллийг _on_price_update, _on_balance_update гэх мэт функцүүд рүү дамжуулна.
         
         self.kuc.error_signal.connect(lambda msg: self.log_signal.emit(f"❌ ERROR DETECTED:\n{msg}"))
         
-        # WebSocket-ийг шууд эхлүүлэх (Жишээ болгож BTC/USDT)
-        self.kuc.start_market_stream()
+        # Local GUI нь WebSocket-ийг шууд эхлүүлэхгүй
+        # self.kuc.start_market_stream()
 
         # Таймерын утгуудыг тохируулах
         self.bal_countdown = 5
@@ -248,7 +245,7 @@ class MainDialog(QObject):
         
         try:
             table.setRowCount(0)
-            total_usdt_worth = 0
+            grand_total_usdt_worth = 0
             
             # CCXT balance-аас койн бүрийн мэдээллийг авах
             # balance['total'] нь нийт, balance['free'] нь арилжаанд бэлэн, balance['used'] нь түгжигдсэн
@@ -256,22 +253,29 @@ class MainDialog(QObject):
                 if total_val > 0:
                     row = table.rowCount()
                     table.insertRow(row)
-                    
+
                     free = balance.get('free', {}).get(asset, 0)
                     used = balance.get('used', {}).get(asset, 0)
-                    
+
                     # Баганууд: ["Asset", "Trading", "Exceed", "Funding", "Total(USDT)"]
                     table.setItem(row, 0, QTableWidgetItem(asset))
                     self._set_num_item(table, row, 1, free)    # Trading
                     self._set_num_item(table, row, 2, 0)       # Exceed (Логик орох хэсэг)
                     self._set_num_item(table, row, 3, used)    # Funding
-                    self._set_num_item(table, row, 4, total_val) # Total
-                    
-                    if asset == 'USDT':
-                        total_usdt_worth += total_val
-            
-            # Нийт USDT балансыг label дээр харуулах
-            self.ui.total_balance_label.setText(f"Total: ${self._fmt(total_usdt_worth, 2)}")
+
+                    # Үнийг хөрвүүлэх (Asset-ийн одоогийн mid price ашиглан)
+                    price_usdt = 1.0 if asset == 'USDT' else self.get_live_price(f"{asset}/USDT")
+                    worth_usdt = total_val * price_usdt
+                    self._set_num_item(table, row, 4, worth_usdt) # Total(USDT)
+                    grand_total_usdt_worth += worth_usdt
+
+            # Footer шинэчлэх
+            footer = self.ui.balance_total_table
+            footer.setItem(0, 0, QTableWidgetItem("TOTAL"))
+            footer.item(0, 0).setForeground(Qt.GlobalColor.yellow)
+            self._set_num_item(footer, 0, 4, grand_total_usdt_worth)
+
+            self.ui.total_balance_label.setText(f"Total: ${self._fmt(grand_total_usdt_worth, 2)}")
             
         finally:
             table.setSortingEnabled(sorting_was_enabled)
@@ -307,9 +311,11 @@ class MainDialog(QObject):
         """Redis-ээс Railway ботын үйл явдлуудыг унших."""
         if self.kuc.redis:
             try:
-                # Сүүлийн ирсэн логийг аваад устгах (pop)
-                event_raw = self.kuc.redis.rpop("bot_events")
-                if event_raw:
+                # Бүх хүлээгдэж буй логийг нэг дор унших
+                while True:
+                    event_raw = self.kuc.redis.rpop("bot_events")
+                    if not event_raw:
+                        break
                     event = json.loads(event_raw)
                     self.log_signal.emit(f"🌐 [RAILWAY] {event['msg']}")
             except Exception:
@@ -318,9 +324,10 @@ class MainDialog(QObject):
     def _on_system_heartbeat(self):
         """Системийг бүхэлд нь 1 минут тутамд шинэчлэх."""
         self.sync_countdown = 60 # Таймерыг дахин эхлүүлэх
-        self.start_fetch()      # Баланс шинэчлэх
-        self.refresh_all()      # Арилжааны түүх шинэчлэх
-        self.refresh_profit()   # Ашгийн статистик шинэчлэх
+        # Local GUI нь Redis-ээс мэдээлэл унших тул эдгээрийг шууд дуудахгүй.
+        # self.start_fetch()
+        # self.refresh_all()
+        # self.refresh_profit()
 
     def _handle_action(self, action_type):
         """Товчлуур дарахад ажиллах ерөнхий функц."""
@@ -328,7 +335,8 @@ class MainDialog(QObject):
         amount = self.ui.amount_input.text()
         # Async тушаал илгээх жишээ
         asyncio.create_task(self.kuc.create_order(symbol, action_type.lower(), float(amount)))
-        self.log_signal.emit(f"Order Sent: {action_type} {amount} {symbol}")
+        # Local GUI нь Railway-аар дамжуулан тушаал илгээх тул Redis-ээр дамжуулна.
+        self.log_signal.emit(f"Local GUI: Order Sent: {action_type} {amount} {symbol}")
 
     @pyqtSlot()
     def refresh_all(self):
@@ -343,8 +351,8 @@ class MainDialog(QObject):
     @pyqtSlot()
     def start_fetch(self):
         """Баланс шинэчлэх логик орох хэсэг."""
-        self.bal_countdown = 5 # Таймерыг дахин эхлүүлэх
-        asyncio.create_task(self.kuc.fetch_balance())
+        # Local GUI нь Redis-ээс мэдээлэл унших тул шууд fetch хийхгүй.
+        pass
 
     def get_live_bid(self, symbol):
         return float(self.ws_bids.get(symbol, 0))
@@ -425,7 +433,7 @@ class MainDialog(QObject):
     def _on_market_select(self, item):
         """Хүснэгтээс зоос сонгоход Ticker label-ийг шинэчлэх."""
         # 1-р багана нь Coin нэр байна
-        coin = self.ui.market_table.item(item.row(), 1).text().split(' ')[0]
+        coin = self.ui.market_table.item(item.row(), 1).text().replace(' ', '') # Хоосон зайг хасна
         self.ui.selected_symbol_label.setText(f"{coin}/USDT")
 
     def _toggle_strategy(self):

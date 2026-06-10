@@ -9,15 +9,16 @@ async def main():
     client = KucoinClient()
     
     # 2. Сигналуудын оронд консол дээр лог хэвлэх (Optional)
-    client.error_signal.connect(lambda msg: print(f"!!! ERROR: {msg}"))
+    client.error_signal.connect(lambda msg: client.log_event(msg, "ERROR"))
     
     # 3. WebSocket урсгалыг эхлүүлэх
     client.start_market_stream()
+    client.log_event("WebSocket урсгал эхэллээ.", "INFO")
     
     # 4. Хяналтын гогцоо (Баланс шалгах + Ажиллаж байгааг мэдэгдэх)
     while True:
         await client.fetch_balance()
-        print(f"[{os.getpid()}] Бот хэвийн ажиллаж байна. Баланс шинэчлэгдлээ.")
+        client.log_event("Баланс шинэчлэгдлээ.", "INFO")
         await asyncio.sleep(60) # 1 минут тутамд
 
 if __name__ == "__main__":
