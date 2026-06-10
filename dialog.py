@@ -21,22 +21,25 @@ class MainDialog(QObject):
     balance_bridge = pyqtSignal(dict)
     net_status_bridge = pyqtSignal(dict)
 
-    def __init__(self, ui_instance):
+    # loop-ийг энд нэмж хүлээж авна
+    def __init__(self, ui_instance, loop=None):
         super().__init__()
         self.ui = ui_instance
+        # Хэрэв loop дамжиж ирээгүй бол одоо ажиллаж байгааг нь авна
+        self.loop = loop or asyncio.get_event_loop() 
         self.file_lock = threading.RLock()
         self.active_symbols = {}
-        self.symbol_to_row = {} # Symbol -> Row mapping
-        self.initial_mid_prices = {} # To store initial mid price for Real% calculation
+        self.symbol_to_row = {} 
+        self.initial_mid_prices = {} 
         
         # Үнийн кэш
         self.ws_bids = {}
         self.ws_asks = {}
-        self.all_data = [] # Market data cache
+        self.all_data = [] 
 
         # 1. KuCoin Client эхлүүлэх
-        self.kuc = KucoinClient() # Redis холболтыг үүсгэх зорилгоор
-        self.exchange = None # Local GUI нь KuCoin-той шууд харилцахгүй
+        self.kuc = KucoinClient() 
+        self.exchange = None 
         
         self.kuc.error_signal.connect(lambda msg: self.log_signal.emit(f"❌ ERROR DETECTED:\n{msg}"))
         
@@ -45,15 +48,15 @@ class MainDialog(QObject):
         self.balance_bridge.connect(self._on_balance_update)
         self.net_status_bridge.connect(self._on_net_status_update)
 
-        # Redis-ээс мэдээлэл урсгах моторыг асаах
-        asyncio.get_event_loop().create_task(self._start_redis_market_listener())
+        # ЗАСВАР: Ажиллаж байгаа баталгаат loop дээр таск-аа асаана
+        self.loop.create_task(self._start_redis_market_listener())
 
         # Таймерын утгуудыг тохируулах
         self.bal_countdown = 5
         self.sync_countdown = 60
         self.ui_tick_timer = QTimer()
         self.ui_tick_timer.timeout.connect(self._ui_heartbeat)
-        self.ui_tick_timer.start(1000) # 1 секунд тутам
+        self.ui_tick_timer.start(1000) 
 
         # 3. UI Сигнал холболтууд
         self._wire_ui()
@@ -62,12 +65,12 @@ class MainDialog(QObject):
         # 4. Системийн авто-шинэчлэл (1 минут тутамд)
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self._on_system_heartbeat)
-        self.refresh_timer.start(60000) # 60,000 ms = 1 минут
+        self.refresh_timer.start(60000) 
 
         # 5. Баланс авто-шинэчлэл (5 секунд тутамд)
         self.balance_timer = QTimer()
         self.balance_timer.timeout.connect(self.start_fetch)
-        self.balance_timer.start(5000) # 5,000 ms = 5 секунд
+        self.balance_timer.start(5000)
 
     def _wire_ui(self):
         """UI-ийн товчлууруудыг логик функцүүдтэй холбох."""
