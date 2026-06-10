@@ -74,7 +74,7 @@ class KucoinClient:
             if self.redis:
                 await asyncio.to_thread(self.redis.set, "bot_balance", json.dumps(balance))
             
-            self._emit_net_status(start_time)
+            await self._emit_net_status(start_time)
             self.balance_signal.emit(balance)
             return balance
         except Exception as e:
@@ -101,7 +101,7 @@ class KucoinClient:
                 # Серверийн цагийг авах замаар RTT (Latency) хэмжих
                 await self.exchange.fetch_time()
                 self._track_request()
-                self._emit_net_status(start_time)
+                await self._emit_net_status(start_time)
             except Exception:
                 # Алдаа гарвал WS төлөвийг индикатор болгож харуулна
                 self.net_status_signal.emit({
@@ -156,7 +156,7 @@ class KucoinClient:
 
             all_tickers = await self.exchange.fetch_tickers()
             self._track_request()
-            self._emit_net_status(start_time)
+            await self._emit_net_status(start_time)
 
             # Leveraged tokens (3L, 3S) болон USDT бус хослолуудыг хасна
             usdt_pairs = [s for s, t in all_tickers.items() if s.endswith('/USDT') and '3L' not in s and '3S' not in s]
@@ -235,7 +235,7 @@ class KucoinClient:
             'min_amount': t.get('min_amount', 0.0) # Added min_amount
         })
 
-    def _emit_net_status(self, start_time):
+    async def _emit_net_status(self, start_time):
         """Сүлжээний төлөв байдлыг мэдээлэх."""
         latency = (time.perf_counter() - start_time) * 1000
         # Redis рүү сүлжээний статус бичих
@@ -264,7 +264,7 @@ class KucoinClient:
             else:
                 res = await self.exchange.create_limit_order(symbol, side, amount, price)
             self._track_request()
-            self._emit_net_status(start_time)
+            await self._emit_net_status(start_time)
             return res
         except Exception as e:
             full_error = traceback.format_exc()
