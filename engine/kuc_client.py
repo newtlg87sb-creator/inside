@@ -4,19 +4,27 @@ import os
 import traceback
 import time
 import json
-from PyQt6.QtCore import QObject, pyqtSignal
 
-class KucoinClient(QObject):
+class Signal:
+    """A simple signal class to replace pyqtSignal for headless environments."""
+    def __init__(self):
+        self._slots = []
+    def connect(self, slot):
+        self._slots.append(slot)
+    def emit(self, *args, **kwargs):
+        for slot in self._slots:
+            slot(*args, **kwargs)
+
+class KucoinClient:
     """
     KuCoin API болон WebSocket (ccxt.pro) мэдээллийн урсгалыг async хэлбэрээр хариуцах класс.
     """
-    price_signal = pyqtSignal(dict)
-    balance_signal = pyqtSignal(dict)
-    error_signal = pyqtSignal(str)
-    net_status_signal = pyqtSignal(dict)
 
     def __init__(self):
-        super().__init__()
+        self.price_signal = Signal()
+        self.balance_signal = Signal()
+        self.error_signal = Signal()
+        self.net_status_signal = Signal()
         self.exchange = ccxt.kucoin({
             'apiKey': os.getenv('KUCOIN_API_KEY', ''),
             'secret': os.getenv('KUCOIN_SECRET', ''),
